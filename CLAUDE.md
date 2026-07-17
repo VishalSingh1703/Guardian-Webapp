@@ -4,7 +4,7 @@
 
 - **Repo:** `github.com/VishalSingh1703/Guardian-Webapp`
 - **Sibling repos:** `Guardian-Server` (Python/FastAPI backend — the only thing this app talks to) · `Guardian-App` (Kotlin owner client — this app never talks to it directly).
-- **Status:** greenfield — the repo is effectively empty. This document defines what to build.
+- **Status:** ✅ Scaffolded and running. QR → accident → SOS and QR → parking flows work end-to-end in **stub mode** (no server required). See [§7 Progress & current state](#7-progress--current-state).
 
 ---
 
@@ -35,26 +35,28 @@ The **bystander's** interface, embodying the platform's zero-friction promise: *
 - **Data fetching:** `fetch` or TanStack Query against the Server API base URL (env var, e.g. `NEXT_PUBLIC_API_BASE`).
 - **Hosting:** Vercel (or any static/edge host).
 
-Suggested screens/routes:
+Routes (as built):
 ```
-/                      → landing + "Scan a plate" CTA (requests camera/location perms)
-/scan                  → live camera stream, capture plate frame  → POST /ocr/resolve
-/incident/[token]      → capture damage frame (verify)            → POST /incidents/{token}/verify
-/incident/[token]/act  → unlocked emergency trigger + medical passport
-/utilities/[token]     → parking / vandalism / fleet secondary alerts
+/                       → "scan the QR" info screen (+ dev-only demo link)
+/s/[token]              → QR landing: two options (Accident / Parking)
+/s/[token]/accident     → live camera → capture → verify → SOS → dispatched
+/s/[token]/parking      → preset-message parking alert (stub)
 ```
 
 ---
 
 ## 4. This app's use of the Server API
-Only these routes matter here (full contract in the platform PRD, §6.2). Frames are `multipart/form-data`.
-| Method | Path | Used for |
-|--------|------|----------|
-| `POST` | `/ocr/resolve` | Send plate frame → `{ active_profile, incident_token }`. |
-| `POST` | `/incidents/{token}/verify` | Send wide damage frame + GPS → `{ verified, alert_unlocked }`. |
-| `POST` | `/incidents/{token}/trigger-emergency` | Fire SMS + IVR broadcast (idempotent). |
-| `GET` | `/incidents/{token}/medical-passport` | Read-only vitals, only after `verified`. |
-| `POST` | `/utilities/parking` · `/vandalism` · `/fleet` | Secondary community alerts. |
+📤 **The full, sendable contract for the server team is in [`SERVER_API.md`](./SERVER_API.md)** — request/response JSON for every endpoint. Every call goes through the single client module [`lib/api.ts`](./lib/api.ts). Endpoints as wired today (all under `/api/v1`):
+| Method | Path | Used for | Client fn |
+|--------|------|----------|-----------|
+| `GET` | `/qr/{qr_token}` | Resolve QR → `{ active, categoriesEnabled }`. | `resolveQr` |
+| `POST` | `/incidents/init` | Open an incident → `{ incidentToken }`. | `initIncident` |
+| `POST` | `/incidents/{token}/verify-accident` | Multipart photo + GPS → image-verification result (accident + plate match). | `verifyAccident` |
+| `POST` | `/incidents/{token}/sos` | Fire SMS + IVR broadcast (idempotent). | `triggerSos` |
+| `POST` | `/incidents/{token}/parking` | Parking obstruction alert. | `reportParking` |
+| `GET` | `/incidents/{token}/medical-passport` | *(planned)* read-only vitals after verify. | — |
+
+**Stub mode:** when `NEXT_PUBLIC_API_BASE` is blank, `lib/api.ts` simulates all responses so the UI runs without a server. Set the env var to hit the real API — no other code changes.
 
 **Base URL:** environment variable only, never hard-coded. No API secrets in the client — this is a public browser app; anything sensitive stays on the Server.
 
@@ -72,3 +74,61 @@ Only these routes matter here (full contract in the platform PRD, §6.2). Frames
 - Keep the emergency path fast and forgiving: minimal taps, clear progress, no dead ends; assume a stressed, one-handed user on flaky mobile data.
 - Type the API responses (mirror the Server's Pydantic/OpenAPI models) so a contract change is caught at build time.
 - Verify: `npm run dev`, drive the full scan → verify → trigger flow against a running Guardian-Server (or a mock), and test on an actual phone browser for camera/GPS behavior.
+
+---
+
+## 7. Progress & current state
+
+### Stack (as built)
+Next.js **15.5.20** (App Router) · React **19** · TypeScript · Tailwind CSS 3.4 · PWA (manifest + theme). Pinned Next to 15.5.20 to clear the critical CVE in 15.1.x.
+
+### Run it locally
+```bash
+npm install                     # first time only
+cp .env.example .env.local      # optional; leave NEXT_PUBLIC_API_BASE blank for stub mode
+npm run dev                     # http://localhost:3000
+```
+Other scripts: `npm run build`, `npm run start` (prod), `npm run typecheck`, `npm run lint`.
+- Open `/` for the info screen; in dev it shows a demo link. Or go straight to `/s/DEMO-PLATE-123` to simulate a QR scan.
+- **Camera needs a secure context** — works on `localhost`; on a real phone you need **https** (e.g. a tunnel) or `getUserMedia` is blocked.
+
+### File map
+```
+app/
+  layout.tsx                     # root layout, viewport/PWA metadata, phone-width frame
+  globals.css                    # Tailwind + safe-area helpers
+  page.tsx                       # "scan the QR" info screen (+ dev demo link)
+  s/[token]/page.tsx             # QR landing: Accident / Parking options
+  s/[token]/accident/page.tsx    # accident state machine (init→capture→preview→verify→SOS→dispatched)
+  s/[token]/parking/page.tsx     # preset-message parking alert (stub)
+components/
+  OptionButton.tsx  CameraCapture.tsx  SosButton.tsx  Spinner.tsx
+lib/
+  api.ts                         # single server-integration seam (+ STUB_MODE)
+  types.ts                       # response types (mirror server JSON)
+  geo.ts                         # best-effort GPS (never blocks the flow)
+public/
+  manifest.webmanifest  icon.svg
+SPEC.md          # product flow & requirements
+SERVER_API.md    # endpoint contract to hand to the server team
+```
+
+### What works (verified in-browser, stub mode)
+- ✅ QR landing resolves and renders the two stacked options.
+- ✅ Accident: **live in-page camera only** (`getUserMedia` + canvas capture — no file input, gallery is impossible), capture → preview (retake / use) → server verify → **SOS** → "help on the way".
+- ✅ Parking: preset message → owner-notified confirmation.
+- ✅ Graceful states: camera permission/no-camera errors with retry; incident-init failure with retry; GPS denial never blocks.
+- ✅ `npm run build` + `npm run typecheck` pass clean.
+
+### Decisions made
+- **Camera-only enforced via `getUserMedia`**, not `<input capture>` (which many phones let bypass to the gallery). True authenticity is still the server's job (SPEC §8).
+- **All backend calls stubbed behind `lib/api.ts`** so frontend and backend can progress independently.
+- **Client never self-authorizes** — SOS enables only on server `sosUnlocked`.
+- Pinch-zoom left enabled (accessibility) despite the app-like feel.
+
+### Not done yet / next
+- Wire real server (set `NEXT_PUBLIC_API_BASE`); confirm JSON key casing with server team (see `SERVER_API.md`).
+- Post-verification **medical-passport card** (pending SPEC §9 confirmation).
+- Flesh out parking (photo? geofence?), and decide vandalism/fleet utilities.
+- Real PNG PWA icons (192/512) + optional offline service worker.
+- Two moderate npm-audit advisories remain (transitive `postcss` via Next) — clear on a routine Next bump.
