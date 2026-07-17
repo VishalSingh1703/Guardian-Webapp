@@ -2,16 +2,23 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import CameraCapture from "@/components/CameraCapture";
+import dynamic from "next/dynamic";
 import SosButton from "@/components/SosButton";
 import Spinner from "@/components/Spinner";
 import { initIncident, triggerSos, verifyAccident } from "@/lib/api";
 import { getCurrentCoords } from "@/lib/geo";
 import type { Coords } from "@/lib/types";
 
+// Lazy-load the heaviest client-only piece (camera + canvas capture). It shows
+// an instant skeleton while its small chunk streams in, and — crucially — the
+// incident is opened in parallel (see startInit) so nothing on the hot path waits.
+const CameraCapture = dynamic(() => import("@/components/CameraCapture"), {
+  ssr: false,
+  loading: () => <CameraSkeleton />,
+});
+
 type Step =
-  | "init" // opening the incident
-  | "capture" // live camera
+  | "capture" // live camera (default — shown immediately)
   | "preview" // review captured photo
   | "verifying" // server image-verification pipeline
   | "rejected" // verification failed -> retake
@@ -24,32 +31,30 @@ export default function AccidentPage() {
   const router = useRouter();
   const token = params.token;
 
-  const [step, setStep] = useState<Step>("init");
-  const [incidentToken, setIncidentToken] = useState<string | null>(null);
+  // Start on the camera step so getUserMedia warms up immediately.
+  const [step, setStep] = useState<Step>("capture");
   const [photo, setPhoto] = useState<{ blob: Blob; url: string } | null>(null);
   const [reason, setReason] = useState<string>("");
   const gpsRef = useRef<Coords | null>(null);
 
-  // Open the incident up-front so the token is ready before verification.
+  // The incident is opened in the background, concurrently with camera startup.
+  // We keep the resolved token and the in-flight promise so submit() can await it.
+  const incidentTokenRef = useRef<string | null>(null);
+  const initPromiseRef = useRef<Promise<string> | null>(null);
+
   const startInit = useCallback(() => {
-    let alive = true;
-    setReason("");
-    setStep("init");
-    initIncident(token)
-      .then((r) => {
-        if (!alive) return;
-        setIncidentToken(r.incidentToken);
-        setStep("capture");
-      })
-      .catch(() => {
-        if (alive) setReason("Couldn't start. Please check your connection and try again.");
-      });
-    return () => {
-      alive = false;
-    };
+    const p = initIncident(token).then((r) => {
+      incidentTokenRef.current = r.incidentToken;
+      return r.incidentToken;
+    });
+    initPromiseRef.current = p;
+    p.catch(() => {}); // surfaced at submit time, not here
+    return p;
   }, [token]);
 
-  useEffect(() => startInit(), [startInit]);
+  useEffect(() => {
+    startInit();
+  }, [startInit]);
 
   // Clean up any object URL we created for the preview.
   useEffect(() => {
@@ -67,15 +72,20 @@ export default function AccidentPage() {
     if (photo) URL.revokeObjectURL(photo.url);
     setPhoto(null);
     setReason("");
+    // Refresh the incident in case a prior init failed.
+    if (!incidentTokenRef.current) startInit();
     setStep("capture");
-  }, [photo]);
+  }, [photo, startInit]);
 
   const submit = useCallback(async () => {
-    if (!photo || !incidentToken) return;
+    if (!photo) return;
     setStep("verifying");
     // GPS is best-effort and must never block the flow.
     gpsRef.current = await getCurrentCoords();
     try {
+      // The incident opened in parallel with the camera; make sure it's ready.
+      const incidentToken =
+        incidentTokenRef.current ?? (await (initPromiseRef.current ?? startInit()));
       const result = await verifyAccident(incidentToken, photo.blob, gpsRef.current);
       if (result.verified && result.sosUnlocked) {
         setStep("verified");
@@ -87,9 +97,10 @@ export default function AccidentPage() {
       setReason("Verification failed. Please check your connection and retake.");
       setStep("rejected");
     }
-  }, [photo, incidentToken]);
+  }, [photo, startInit]);
 
   const fireSos = useCallback(async () => {
+    const incidentToken = incidentTokenRef.current;
     if (!incidentToken) return;
     setStep("dispatching");
     try {
@@ -99,7 +110,7 @@ export default function AccidentPage() {
       // Keep the button available so the bystander can retry.
       setStep("verified");
     }
-  }, [incidentToken]);
+  }, []);
 
   return (
     <main className="safe-px safe-pt safe-pb flex flex-1 flex-col">
@@ -107,27 +118,6 @@ export default function AccidentPage() {
         onBack={() => router.push(`/s/${token}`)}
         showBack={step === "capture" || step === "preview"}
       />
-
-      {step === "init" && (
-        <Centered>
-          {reason ? (
-            <>
-              <div className="text-5xl" aria-hidden>
-                ⚠️
-              </div>
-              <p className="mt-4 max-w-xs text-center text-white/80">{reason}</p>
-              <button
-                onClick={startInit}
-                className="mt-8 rounded-2xl bg-white px-6 py-3 font-semibold text-ink active:translate-y-0.5"
-              >
-                Try again
-              </button>
-            </>
-          ) : (
-            <Spinner label="Preparing…" />
-          )}
-        </Centered>
-      )}
 
       {step === "capture" && (
         <div className="flex flex-1 flex-col">
@@ -231,5 +221,21 @@ function Instruction({ children }: { children: React.ReactNode }) {
 function Centered({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center">{children}</div>
+  );
+}
+
+function CameraSkeleton() {
+  return (
+    <div className="flex flex-1 flex-col">
+      <div className="relative flex-1 overflow-hidden rounded-3xl bg-black">
+        <div className="absolute inset-0 flex items-center justify-center text-white/60">
+          Starting camera…
+        </div>
+        <div className="pointer-events-none absolute inset-6 rounded-2xl border-2 border-white/20" />
+      </div>
+      <div className="flex items-center justify-center py-6">
+        <div className="h-20 w-20 rounded-full border-4 border-white/40 bg-white/10" />
+      </div>
+    </div>
   );
 }

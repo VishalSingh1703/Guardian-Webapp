@@ -25,6 +25,8 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
+
 export default function RootLayout({
   children,
 }: {
@@ -33,6 +35,8 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-full">
+        {/* Warm the DNS/TLS handshake to the API origin so the first call is fast. */}
+        {API_BASE && <link rel="preconnect" href={API_BASE} crossOrigin="anonymous" />}
         {/* Phone-first: constrain width so it also degrades gracefully on desktop. */}
         <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col">
           {children}

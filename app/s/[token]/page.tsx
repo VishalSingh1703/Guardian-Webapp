@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import OptionButton from "@/components/OptionButton";
-import Spinner from "@/components/Spinner";
 import { resolveQr } from "@/lib/api";
 import type { QrContext } from "@/lib/types";
 
@@ -23,6 +22,12 @@ export default function LandingPage() {
     };
   }, [token]);
 
+  // Snappy-first: show the action buttons immediately, assuming both categories
+  // are available, and refine once the QR resolves. In an emergency the worst
+  // thing we can do is make the bystander wait on a network round-trip.
+  const categories = ctx?.categoriesEnabled ?? ["accident", "parking"];
+  const notRegistered = ctx !== null && !ctx.active;
+
   return (
     <main className="safe-px safe-pt safe-pb flex flex-1 flex-col">
       <header className="py-8 text-center">
@@ -35,21 +40,13 @@ export default function LandingPage() {
         </p>
       </header>
 
-      {failed ? (
-        <div className="flex flex-1 items-center justify-center px-4 text-center text-white/70">
-          This QR code could not be verified. Please try scanning again.
-        </div>
-      ) : !ctx ? (
-        <div className="flex flex-1 items-center justify-center">
-          <Spinner label="Verifying code…" />
-        </div>
-      ) : !ctx.active ? (
+      {notRegistered ? (
         <div className="flex flex-1 items-center justify-center px-4 text-center text-white/70">
           This vehicle is not registered with Guardian.
         </div>
       ) : (
         <div className="flex flex-1 flex-col justify-center gap-5">
-          {ctx.categoriesEnabled.includes("accident") && (
+          {categories.includes("accident") && (
             <OptionButton
               href={`/s/${token}/accident`}
               tone="danger"
@@ -58,7 +55,7 @@ export default function LandingPage() {
               subtitle="Someone may be hurt — report a crash"
             />
           )}
-          {ctx.categoriesEnabled.includes("parking") && (
+          {categories.includes("parking") && (
             <OptionButton
               href={`/s/${token}/parking`}
               tone="parking"
@@ -71,7 +68,9 @@ export default function LandingPage() {
       )}
 
       <footer className="pt-6 text-center text-xs text-white/30">
-        Guardian keeps the owner&apos;s personal details private.
+        {failed
+          ? "Couldn't verify the code — you can still report."
+          : "Guardian keeps the owner's personal details private."}
       </footer>
     </main>
   );
