@@ -8,13 +8,16 @@
 
 ---
 
+> 📋 **Detailed flow, screens, and open backend endpoints live in [`SPEC.md`](./SPEC.md).** Read it before building — it supersedes the summary below where they differ (notably: entry is by **QR scan**, not a bystander OCR plate-scan).
+
 ## 1. What this component IS
-The **bystander's** interface, embodying the platform's zero-friction promise: *any mobile device instantly acts as an emergency interface, with nothing to install.* A witness at a scene opens a URL in their phone browser and, in seconds, can help. Its jobs (the emergency flow, in order):
-1. **Scan the plate** — open the device camera stream, capture a frame, send it to the Server for OCR + lookup.
-2. **Verify the crash** — the UI stays **locked** until the bystander captures a wide damage frame that the Server's CV engine confirms, plus a passing geofence check.
-3. **Trigger the emergency broadcast** — once unlocked, one action fires the Server's SMS + IVR pipeline to the owner's emergency contacts, sending the bystander's live GPS.
-4. **Show the medical passport** — after verification, display a read-only card of driver vitals (blood group, allergies, organ-donor) so responders can act.
-5. **Secondary utilities** — file parking-obstruction, vandalism, or fleet/maintenance courtesy alerts against a plate.
+The **bystander's** interface, embodying the platform's zero-friction promise: *any mobile device instantly acts as an emergency interface, with nothing to install.* A witness at a scene **scans the QR code on the vehicle**, which auto-opens the app in their phone browser, and in seconds can help. Its jobs (the emergency flow, in order):
+1. **Land via QR** — the QR (on car/bike/helmet) encodes a URL with a `qr_token` that maps to the vehicle; the app reads it from the URL. No plate OCR by the user — the QR does the identification.
+2. **Choose a category** — landing screen with two vertically-stacked options: **Accident/Safety** and **Parking**.
+3. **Capture the accident photo** — live in-page camera only (**no gallery**); upload the frame. The UI stays **locked** until the Server's image-verification pipeline confirms both *(a)* the image depicts an accident and *(b)* the plate in the photo matches the QR-mapped plate.
+4. **Trigger SOS** — once unlocked, one tap fires the Server's SMS + IVR pipeline to the owner's emergency contacts, sending the bystander's live GPS.
+5. **Show the medical passport** — after verification, display a read-only card of driver vitals (blood group, allergies, organ-donor) so responders can act. *(Confirm inclusion — see SPEC §9.)*
+6. **Secondary utilities** — file parking-obstruction (and later vandalism / fleet) courtesy alerts against the QR-mapped vehicle.
 
 ## 2. What this component is NOT (hard boundaries)
 - ❌ **Not the owner app.** Vehicle registration, profile/medical-passport *entry*, and accelerometer crash detection live in **Guardian-App**. This app never creates or edits profiles.

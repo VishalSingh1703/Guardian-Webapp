@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: theme("colors.ink");
+  color: #f4f5f7;
+  -webkit-font-smoothing: antialiased;
+  /* Avoid rubber-band scroll on the emergency screens. */
+  overscroll-behavior-y: none;
+}
+
+/* Respect device safe areas (notches / home indicator) on phones. */
+.safe-px {
+  padding-left: max(1.25rem, env(safe-area-inset-left));
+  padding-right: max(1.25rem, env(safe-area-inset-right));
+}
+.safe-pb {
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+}
+.safe-pt {
+  padding-top: max(1.5rem, env(safe-area-inset-top));
+}

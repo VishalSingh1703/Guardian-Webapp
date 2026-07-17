@@ -1,0 +1,18 @@
+{
+  "name": "Guardian — Emergency Assist",
+  "short_name": "Guardian",
+  "description": "Scan a vehicle QR to report an accident or parking issue and trigger help.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0d12",
+  "theme_color": "#0b0d12",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
